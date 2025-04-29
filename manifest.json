@@ -1,0 +1,19 @@
+{
+  "manifest_version": 3,
+  "name": "MeetIntel",
+  "version": "1.0",
+  "description": "Meeting Intelligence Platform",
+  "permissions": ["activeTab", "storage"],
+  "action": {
+    "default_popup": "popup.html"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://meet.google.com/*", "https://zoom.us/*", "https://teams.microsoft.com/*"],
+      "js": ["content.js"]
+    }
+  ]
+}
