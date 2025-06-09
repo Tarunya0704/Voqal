@@ -20,20 +20,68 @@ class MeetingSummaryPopup {
         document.getElementById('apiKey').addEventListener('input', (e) => this.saveApiKey(e.target.value));
         document.getElementById('autoSummarize').addEventListener('change', (e) => this.saveSettings());
         document.getElementById('language').addEventListener('change', (e) => this.saveSettings());
+        
+        // Check microphone permissions on load
+        this.checkMicrophonePermissions();
     }
 
     async startRecording() {
         try {
+            // First check if we're in a secure context
+            if (!window.isSecureContext) {
+                throw new Error('Microphone access requires HTTPS or localhost');
+            }
+
+            // Check if getUserMedia is available
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                throw new Error('Media devices not supported in this browser');
+            }
+
+            this.showStatus('Requesting microphone access...', 'processing');
+
+            // Request microphone with specific constraints
             const stream = await navigator.mediaDevices.getUserMedia({ 
                 audio: {
                     echoCancellation: true,
                     noiseSuppression: true,
-                    sampleRate: 16000
+                    autoGainControl: true,
+                    sampleRate: 16000,
+                    channelCount: 1
                 } 
             });
             
+            // Check if we got a valid stream
+            if (!stream || stream.getAudioTracks().length === 0) {
+                throw new Error('No audio tracks available');
+            }
+
+            this.showStatus('Microphone access granted, starting recording...', 'processing');
+            
+            // Try different MIME types in order of preference
+            const mimeTypes = [
+                'audio/webm;codecs=opus',
+                'audio/webm',
+                'audio/ogg;codecs=opus',
+                'audio/mp4',
+                'audio/wav'
+            ];
+
+            let selectedMimeType = null;
+            for (const mimeType of mimeTypes) {
+                if (MediaRecorder.isTypeSupported(mimeType)) {
+                    selectedMimeType = mimeType;
+                    break;
+                }
+            }
+
+            if (!selectedMimeType) {
+                throw new Error('No supported audio format found');
+            }
+
+            console.log('Using MIME type:', selectedMimeType);
+            
             this.mediaRecorder = new MediaRecorder(stream, {
-                mimeType: 'audio/webm;codecs=opus'
+                mimeType: selectedMimeType
             });
             
             this.audioChunks = [];
@@ -41,28 +89,56 @@ class MeetingSummaryPopup {
             this.mediaRecorder.ondataavailable = (event) => {
                 if (event.data.size > 0) {
                     this.audioChunks.push(event.data);
+                    console.log('Audio chunk received:', event.data.size, 'bytes');
                 }
             };
             
             this.mediaRecorder.onstop = () => {
-                const audioBlob = new Blob(this.audioChunks, { type: 'audio/webm' });
+                console.log('Recording stopped, processing audio...');
+                const audioBlob = new Blob(this.audioChunks, { type: selectedMimeType });
+                console.log('Audio blob created:', audioBlob.size, 'bytes');
                 this.processAudio(audioBlob);
+            };
+
+            this.mediaRecorder.onerror = (event) => {
+                console.error('MediaRecorder error:', event.error);
+                this.showStatus(`Recording error: ${event.error.message}`, 'error');
             };
             
             this.mediaRecorder.start(1000); // Record in 1-second chunks
             this.isRecording = true;
             this.updateUI();
+            this.showStatus('Recording in progress...', 'recording');
             
             // Auto-stop after 2 hours max
-            setTimeout(() => {
+            this.recordingTimeout = setTimeout(() => {
                 if (this.isRecording) {
+                    console.log('Auto-stopping recording after 2 hours');
                     this.stopRecording();
                 }
             }, 2 * 60 * 60 * 1000);
             
         } catch (error) {
             console.error('Error starting recording:', error);
-            this.showStatus('Error: Could not access microphone', 'error');
+            let errorMessage = 'Could not access microphone';
+            
+            if (error.name === 'NotAllowedError') {
+                errorMessage = 'Microphone access denied. Please allow microphone permissions and try again.';
+            } else if (error.name === 'NotFoundError') {
+                errorMessage = 'No microphone found. Please connect a microphone and try again.';
+            } else if (error.name === 'NotReadableError') {
+                errorMessage = 'Microphone is being used by another application.';
+            } else if (error.name === 'OverconstrainedError') {
+                errorMessage = 'Microphone constraints not supported.';
+            } else if (error.name === 'SecurityError') {
+                errorMessage = 'Microphone access blocked due to security policy.';
+            } else if (error.message) {
+                errorMessage = error.message;
+            }
+            
+            this.showStatus(errorMessage, 'error');
+            this.isRecording = false;
+            this.updateUI();
         }
     }
 
@@ -71,6 +147,13 @@ class MeetingSummaryPopup {
             this.mediaRecorder.stop();
             this.mediaRecorder.stream.getTracks().forEach(track => track.stop());
             this.isRecording = false;
+            
+            // Clear timeout
+            if (this.recordingTimeout) {
+                clearTimeout(this.recordingTimeout);
+                this.recordingTimeout = null;
+            }
+            
             this.updateUI();
             this.showStatus('Processing audio...', 'processing');
         }
@@ -84,11 +167,18 @@ class MeetingSummaryPopup {
                 return;
             }
 
-            // Convert audio to the format expected by Whisper
-            const audioBuffer = await audioBlob.arrayBuffer();
+            if (!audioBlob || audioBlob.size === 0) {
+                throw new Error('No audio data recorded');
+            }
+
+            console.log('Processing audio blob:', audioBlob.size, 'bytes, type:', audioBlob.type);
+            this.showStatus('Transcribing audio with Whisper AI...', 'processing');
+
+            // Convert audio blob to a format suitable for Whisper
             const formData = new FormData();
-            formData.append('file', new Blob([audioBuffer], { type: 'audio/wav' }), 'audio.wav');
+            formData.append('file', audioBlob, 'recording.webm');
             formData.append('model', 'whisper-1');
+            formData.append('response_format', 'json');
             
             const language = document.getElementById('language').value;
             if (language !== 'auto') {
@@ -105,11 +195,18 @@ class MeetingSummaryPopup {
             });
 
             if (!transcribeResponse.ok) {
-                throw new Error(`Transcription failed: ${transcribeResponse.statusText}`);
+                const errorData = await transcribeResponse.json().catch(() => ({}));
+                throw new Error(`Transcription failed: ${transcribeResponse.status} ${transcribeResponse.statusText}. ${errorData.error?.message || ''}`);
             }
 
             const transcriptionData = await transcribeResponse.json();
             const transcript = transcriptionData.text;
+
+            if (!transcript || transcript.trim().length === 0) {
+                throw new Error('No speech detected in the recording');
+            }
+
+            console.log('Transcription successful:', transcript.length, 'characters');
 
             // Save transcript
             await this.saveTranscript(transcript);
@@ -120,11 +217,22 @@ class MeetingSummaryPopup {
             } else {
                 this.showTranscript(transcript);
                 document.getElementById('summarizeBtn').disabled = false;
+                this.showStatus('Transcription complete! Click "Generate Summary" for AI summary.', 'success');
             }
 
         } catch (error) {
             console.error('Error processing audio:', error);
-            this.showStatus(`Error: ${error.message}`, 'error');
+            let errorMessage = `Error: ${error.message}`;
+            
+            if (error.message.includes('401')) {
+                errorMessage = 'Invalid API key. Please check your OpenAI API key.';
+            } else if (error.message.includes('429')) {
+                errorMessage = 'API rate limit exceeded. Please try again later.';
+            } else if (error.message.includes('insufficient_quota')) {
+                errorMessage = 'Insufficient OpenAI credits. Please add credits to your account.';
+            }
+            
+            this.showStatus(errorMessage, 'error');
         }
     }
 
@@ -261,14 +369,51 @@ Please format the summary in a clear, organized manner with bullet points where 
     showStatus(message, type) {
         const statusText = document.getElementById('statusText');
         const statusIndicator = document.getElementById('statusIndicator');
+        const troubleshooting = document.getElementById('troubleshooting');
         
         statusText.textContent = message;
         statusIndicator.className = `status-indicator ${type}`;
+        
+        // Show troubleshooting for microphone errors
+        if (type === 'error' && message.toLowerCase().includes('microphone')) {
+            troubleshooting.style.display = 'block';
+        } else {
+            troubleshooting.style.display = 'none';
+        }
         
         if (type === 'success') {
             setTimeout(() => {
                 this.updateUI();
             }, 3000);
+        }
+    }
+
+    async checkMicrophonePermissions() {
+        try {
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                this.showStatus('Media devices not supported', 'error');
+                return;
+            }
+
+            // Check if we're in a secure context
+            if (!window.isSecureContext) {
+                this.showStatus('Requires HTTPS connection', 'error');
+                return;
+            }
+
+            // Try to get permission state
+            if (navigator.permissions && navigator.permissions.query) {
+                const result = await navigator.permissions.query({ name: 'microphone' });
+                if (result.state === 'denied') {
+                    this.showStatus('Microphone access denied', 'error');
+                } else if (result.state === 'granted') {
+                    this.showStatus('Microphone access granted', 'success');
+                } else {
+                    this.showStatus('Ready to record (will request microphone access)', 'idle');
+                }
+            }
+        } catch (error) {
+            console.log('Could not check microphone permissions:', error);
         }
     }
 
