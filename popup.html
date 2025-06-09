@@ -1,21 +1,188 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>MeetIntel</title>
-  <link rel="stylesheet" href="styles.css">
+    <meta charset="utf-8">
+    <style>
+        body {
+            width: 350px;
+            padding: 20px;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            margin: 0;
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        
+        .header h1 {
+            margin: 0;
+            font-size: 24px;
+            font-weight: 600;
+        }
+        
+        .status {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            backdrop-filter: blur(10px);
+        }
+        
+        .status-indicator {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+        
+        .recording { background: #ff4757; animation: pulse 2s infinite; }
+        .idle { background: #7bed9f; }
+        .processing { background: #ffa502; }
+        
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+        
+        .controls {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        
+        button {
+            flex: 1;
+            padding: 12px;
+            border: none;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            background: rgba(255, 255, 255, 0.2);
+            color: white;
+            backdrop-filter: blur(10px);
+        }
+        
+        button:hover {
+            background: rgba(255, 255, 255, 0.3);
+            transform: translateY(-2px);
+        }
+        
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .summary-section {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 15px;
+            border-radius: 10px;
+            margin-top: 20px;
+            backdrop-filter: blur(10px);
+        }
+        
+        .summary-content {
+            max-height: 200px;
+            overflow-y: auto;
+            font-size: 14px;
+            line-height: 1.4;
+        }
+        
+        .transcript {
+            background: rgba(0, 0, 0, 0.2);
+            padding: 10px;
+            border-radius: 6px;
+            margin-top: 10px;
+            font-size: 12px;
+            max-height: 150px;
+            overflow-y: auto;
+        }
+        
+        .settings {
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 1px solid rgba(255, 255, 255, 0.2);
+        }
+        
+        .setting-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        
+        input[type="range"] {
+            width: 100px;
+        }
+        
+        .api-key-input {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            border-radius: 4px;
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+            margin-top: 5px;
+        }
+        
+        .api-key-input::placeholder {
+            color: rgba(255, 255, 255, 0.7);
+        }
+    </style>
 </head>
 <body>
-  <div class="container">
-    <h1>MeetIntel</h1>
-    <div id="meeting-info">
-      <p>No active meeting detected</p>
+    <div class="header">
+        <h1>🎤 Meeting Summary AI</h1>
     </div>
-    <button id="analyze-btn">Analyze Meeting</button>
-    <div id="insights" class="hidden">
-      <h3>Meeting Insights</h3>
-      <div id="insights-content"></div>
+    
+    <div class="status">
+        <span class="status-indicator idle" id="statusIndicator"></span>
+        <span id="statusText">Ready to record</span>
     </div>
-  </div>
-  <script src="popup.js"></script>
+    
+    <div class="controls">
+        <button id="startBtn">Start Recording</button>
+        <button id="stopBtn" disabled>Stop Recording</button>
+        <button id="summarizeBtn" disabled>Generate Summary</button>
+    </div>
+    
+    <div class="settings">
+        <div class="setting-item">
+            <label>Auto-summarize:</label>
+            <input type="checkbox" id="autoSummarize" checked>
+        </div>
+        <div class="setting-item">
+            <label>Language:</label>
+            <select id="language" style="background: rgba(255,255,255,0.2); color: white; border: none; border-radius: 4px; padding: 4px;">
+                <option value="en">English</option>
+                <option value="es">Spanish</option>
+                <option value="fr">French</option>
+                <option value="de">German</option>
+                <option value="auto">Auto-detect</option>
+            </select>
+        </div>
+        <div>
+            <label>OpenAI API Key:</label>
+            <input type="password" id="apiKey" class="api-key-input" placeholder="sk-...">
+        </div>
+    </div>
+    
+    <div class="summary-section" id="summarySection" style="display: none;">
+        <h3>📝 Meeting Summary</h3>
+        <div class="summary-content" id="summaryContent"></div>
+        
+        <h4>📋 Transcript</h4>
+        <div class="transcript" id="transcriptContent"></div>
+        
+        <button id="exportBtn" style="width: 100%; margin-top: 10px;">Export Summary</button>
+    </div>
+
+    <script src="popup.js"></script>
 </body>
 </html>

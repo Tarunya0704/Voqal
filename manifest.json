@@ -1,19 +1,31 @@
+
 {
   "manifest_version": 3,
-  "name": "MeetIntel",
+  "name": "Meeting Summary AI",
   "version": "1.0",
-  "description": "Meeting Intelligence Platform",
-  "permissions": ["activeTab", "storage"],
-  "action": {
-    "default_popup": "popup.html"
-  },
+  "description": "Automatically transcribe and summarize meetings using Whisper AI",
+  "permissions": [
+    "activeTab",
+    "storage",
+    "tabCapture",
+    "desktopCapture"
+  ],
   "background": {
     "service_worker": "background.js"
   },
   "content_scripts": [
     {
-      "matches": ["https://meet.google.com/*", "https://zoom.us/*", "https://teams.microsoft.com/*"],
+      "matches": ["<all_urls>"],
       "js": ["content.js"]
     }
-  ]
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Meeting Summary AI"
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
 }
